@@ -2,14 +2,16 @@ name: "hades"
 
 parameters:
   # === Image Generation Configuration ===
-  pixart_path: "/path/to/PixArt-alpha/PixArt-XL-2-1024-MS"
+  pixart_path: "/home/ubuntu/data/models/PixArt-XL-2-1024-MS"
   creat_image: true
   iter_steps: 3  # Iteration steps
+  # Device configuration (use 空闲 GPU to avoid OOM)
+  device: "cuda:4"
 
   # === Font Configuration ===
   font_path: "attacks/Arial Font/ARIAL.TTF"
   font_size: 70
 
-  # === API Configuration ===
-  auxiliary_model_name: "gpt-3.5-turbo"
+  # === API Configuration (using local vLLM model instead of gpt-3.5-turbo) ===
+  auxiliary_model_name: "qwen2.5-3b-instruct"
   load_model: true

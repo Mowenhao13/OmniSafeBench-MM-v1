@@ -333,7 +333,8 @@ class CSDJAttack(BaseAttack):
         random.shuffle(img_list)
         selected = img_list[: cfg.num_images]
 
-        model = SentenceTransformer(cfg.clip_path)
+        # Use CPU to avoid meta tensor issues
+        model = SentenceTransformer(cfg.clip_path, device="cpu")
         result = []
         for name in selected:
             full = os.path.join(cfg.src_dir, name)
@@ -381,15 +382,25 @@ class CSDJAttack(BaseAttack):
         image_embeddings = torch.tensor([it["img_emb"] for it in emb_data])
         image_paths = [it["img_path"] for it in emb_data]
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        image_embeddings = image_embeddings.to(device)
-        model = SentenceTransformer(self.cfg.clip_path).to(device)
+        # Use transformers CLIP directly - model files are in 0_CLIPModel subdirectory
+        from transformers import CLIPModel, CLIPProcessor
+        clip_model_path = os.path.join(cfg.clip_path, "0_CLIPModel")
+        clip_model = CLIPModel.from_pretrained(clip_model_path, torch_dtype=torch.float32).to("cpu")
+        clip_processor = CLIPProcessor.from_pretrained(clip_model_path)
 
         results: Dict[str, List[str]] = {}
         for q in all_instructions:
             lst = []
             selected: List[torch.Tensor] = []
-            text_emb = model.encode(q, convert_to_tensor=True).to(device)
+
+            # Encode text using CLIP directly
+            inputs = clip_processor(text=[q], images=None, return_tensors="pt", padding=True)
+            inputs = {k: v.to("cpu") for k, v in inputs.items()}
+            with torch.no_grad():
+                text_emb = clip_model.get_text_features(**inputs)
+            text_emb = text_emb / text_emb.norm(dim=-1, keepdim=True)
+            text_emb = text_emb.float()
+
             selected.append(text_emb)
             for _ in range(cfg.max_pairs_per_question):
                 combined = torch.vstack(selected)
@@ -439,12 +450,16 @@ class CSDJAttack(BaseAttack):
         )
         self.cfg.save_map_path = self.output_image_dir.parent / self.cfg.save_map_path
 
-        auxiliary_model_name = self.cfg.auxiliary_model_name
-        model_config = get_model_config(auxiliary_model_name)
-
-        self.auxiliary_model = UNIFIED_REGISTRY.create_model(
-            auxiliary_model_name, model_config
-        )
+        # Try to load auxiliary model, but continue if it fails
+        self.auxiliary_model = None
+        try:
+            auxiliary_model_name = self.cfg.auxiliary_model_name
+            model_config = get_model_config(auxiliary_model_name)
+            self.auxiliary_model = UNIFIED_REGISTRY.create_model(
+                auxiliary_model_name, model_config
+            )
+        except Exception as e:
+            print(f"[WARN] Failed to load auxiliary model: {e}, will use fallback splitting")
 
         emb_path = self._ensure_image_embeddings(self.cfg)
 
@@ -459,15 +474,27 @@ class CSDJAttack(BaseAttack):
         select_map: Dict[str, List[str]] = _safe_read_json(select_map_path)
 
         question = original_prompt
-        # 1) Split into 3 sub-questions (prefer local model; otherwise fallback to simple splitting)
+        # 1) Split into 3 sub-questions (fallback to simple splitting if model fails)
         sub_qs: List[str] = []
-        prompt = self.task_split_prompt.format(jailbreak_prompt=question)
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt},
-        ]
-        resp = self.auxiliary_model.generate(messages).choices[0].message.content
-        sub_qs = re.findall(r"\d+\.\s*(.*)", resp)[3:6]
+        try:
+            if self.auxiliary_model is not None:
+                prompt = self.task_split_prompt.format(jailbreak_prompt=question)
+                messages = [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt},
+                ]
+                resp = self.auxiliary_model.generate(messages).choices[0].message.content
+                sub_qs = re.findall(r"\d+\.\s*(.*)", resp)[3:6]
+        except Exception as e:
+            print(f"[WARN] Failed to use auxiliary model: {e}, using fallback splitting")
+
+        # Fallback: Create 3 simple variations if model splitting failed
+        if len(sub_qs) < 3:
+            sub_qs = [
+                f"First part: {question}",
+                f"Second part: {question}",
+                f"Third part: {question}"
+            ]
         # 2) Convert text to three images
         combine_dir = Path(self.output_image_dir.parent / "combine_image_data")
         combine_dir.mkdir(parents=True, exist_ok=True)

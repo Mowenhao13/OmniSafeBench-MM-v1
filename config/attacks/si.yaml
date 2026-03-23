@@ -3,7 +3,9 @@ name: "si"
 parameters:
   # Victim model configuration
   target_model_name: llava-v1.6-mistral-7b-hf
-  target_model_path: /path/to/llava-hf/llava-v1.6-mistral-7b-hf
-  # Auxiliary model configuration
-  auxiliary_model_name: "gpt-3.5-turbo"
+  target_model_path: /home/ubuntu/data/models/llava-v1.6-mistral-7b-hf
+  # Device configuration (use空闲 GPU to avoid OOM)
+  device: "cuda:3"
+  # Auxiliary model configuration (using local vLLM model instead of gpt-3.5-turbo)
+  auxiliary_model_name: "internvl2-5-4b"
   load_model: true

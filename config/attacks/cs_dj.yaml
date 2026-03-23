@@ -2,8 +2,9 @@ name: "cs_dj"
 
 parameters:
   # === Path Configuration ===
-  src_dir: "/path/to/liuhaotian/LLaVA-CC3M-Pretrain-595K/images"
-  clip_path: "/path/to/sentence-transformers/clip-ViT-L-14"
+  # Note: LLaVA-CC3M dataset not downloaded - update this path when available
+  src_dir: "/home/ubuntu/data/dataset/LLaVA-CC3M-Pretrain-595K/images"
+  clip_path: "/home/ubuntu/data/models/clip-ViT-L-14"
   save_embeding_path: image_embedding
   save_map_path: "image_map"
 
@@ -14,7 +15,7 @@ parameters:
   max_items_per_file: 5
 
   # === Auxiliary Model Configuration ===
-  auxiliary_model_name: "gpt-4o-mini"
+  auxiliary_model_name: "qwen2.5-3b-instruct"
 
   # === Font and Image Processing Parameters ===
   font_path: "attacks/Arial Font/ARIAL.TTF"

@@ -1,14 +1,19 @@
 name: himrd
 
 parameters:
-  stable_diffusion_path: /path/to/stabilityai/stable-diffusion-3.5-medium
+  stable_diffusion_path: /home/ubuntu/data/models/stable-diffusion-3.5-medium
   t2i_model_key: stable-diffusion-3-medium
-  t2i_device: cuda:0
+  # SD device configuration (use 空闲 GPU 2, 24GB free)
+  t2i_device: cuda:2
   t2i_dtype: float16
-  harmbench_path: /path/to/cais/HarmBench-Llama-2-13b-cls
+  # HarmBench device configuration (use separate GPU 3 to avoid OOM, 13B model needs ~26GB -> use CPU fallback)
+  harmbench_device: cuda:3
+  harmbench_path: /home/ubuntu/data/models/HarmBench-Llama-2-13b-cls
   top_font_path: "attacks/Arial Font/ARIAL.TTF"
   top_font_size: 25
-  target_model_name: gpt-3.5-turbo
+  target_model_name: internvl2-5-4b
+  # OpenAI-compatible model configuration (using local vLLM model - use full path as model ID)
+  openai_model: /home/ubuntu/data/models/InternVL2_5-4B
   enable_sd: true
-  auxiliary_model_name: gpt-3.5-turbo
+  auxiliary_model_name: internvl2-5-4b
   load_model: true

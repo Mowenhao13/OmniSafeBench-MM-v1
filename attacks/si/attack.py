@@ -154,7 +154,7 @@ class SIModelManager:
                 )
         return self.auxiliary_model
 
-    def get_target_model(self, target_model_path: str):
+    def get_target_model(self, target_model_path: str, device: str = "cuda:0"):
         """Get target model singleton (thread-safe)"""
         with self.model_lock:
             if self.target_model is None and target_model_path:
@@ -165,10 +165,10 @@ class SIModelManager:
                     self.target_model = (
                         LlavaNextForConditionalGeneration.from_pretrained(
                             target_model_path
-                        ).to("cuda:0")
+                        ).to(device)
                     )
                     self.logger.info(
-                        f"Loaded target model singleton: {target_model_path}"
+                        f"Loaded target model singleton: {target_model_path} on {device}"
                     )
                 except Exception as e:
                     self.logger.warning(f"Target model singleton loading failed: {e}")
@@ -215,6 +215,9 @@ class SIConfig:
     target_model_name: str = "llava-v1.6-mistral-7b-hf"
     target_model_path: str = ""
 
+    # Device configuration
+    device: str = "cuda:0"
+
     # Auxiliary model configuration
     auxiliary_model_name: str = "gpt-4o-mini"
 
@@ -246,8 +249,11 @@ class SIAttack(BaseAttack):
         self.target_model = None
         self.processor = None
 
+        # Get device from config (default to cuda:0 if not specified)
+        self.device = self.cfg.device
+
         self.logger.info(
-            "SI attack initialization completed, using singleton model manager"
+            f"SI attack initialization completed, using singleton model manager, device: {self.device}"
         )
 
     def _get_models(self):
@@ -259,7 +265,7 @@ class SIAttack(BaseAttack):
 
         if self.target_model is None or self.processor is None:
             self.target_model, self.processor = self.model_manager.get_target_model(
-                self.cfg.target_model_path
+                self.cfg.target_model_path, self.device
             )
 
         return self.auxiliary_model, self.target_model, self.processor
@@ -315,7 +321,7 @@ class SIAttack(BaseAttack):
             # processor expects PIL Image object, parameter order is (text, images, ...)
             inputs = processor(
                 text=text_per_prompt, images=image_per, return_tensors="pt"
-            ).to("cuda:0")
+            ).to(self.device)
             self.logger.debug(f"Input: {object_question}")
 
             # autoregressively complete prompt

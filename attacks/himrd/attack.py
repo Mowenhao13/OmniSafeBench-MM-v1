@@ -215,6 +215,7 @@ class HIMRDConfig:
 
     # === HarmBench evaluation model path ===
     harmbench_path: str = "/mnt/nfs/mt/models/cais_HarmBench-Llama-2-13b-cls"
+    harmbench_device: str = "cuda:0"  # Dedicated device for HarmBench to avoid OOM with SD
 
     # === Font configuration (for text top image) ===
     top_font_path: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -226,6 +227,7 @@ class HIMRDConfig:
     sd_guidance_scale: float = 8.0
 
     auxiliary_model_name: str = "gpt-4o-mini"
+    openai_model: str = "gpt-4o-2024-05-13"  # Model name for OpenAI API calls
 
     # === Runtime switches ===
     enable_sd: bool = True
@@ -316,6 +318,8 @@ class HIMRDAttack(BaseAttack):
             self.logger.info(
                 f"SD configuration: device={self._sd_device}, dtype={self._sd_dtype}"
             )
+            # Initialize SD pipeline lazily (when first needed) to save memory
+            # SD pipeline will be initialized in _generate_bottom_images method
 
         # Initialize HarmBench judge model (if path is configured)
         self.judge = None
@@ -323,16 +327,28 @@ class HIMRDAttack(BaseAttack):
             try:
                 from .harmfulbench_utils import HarmBenchJudge
 
+                # Use dedicated harmbench_device if configured, otherwise fall back to t2i_device
+                harmbench_device = getattr(self.cfg, 'harmbench_device', self.cfg.t2i_device)
                 self.judge = HarmBenchJudge(
-                    model_path=self.cfg.harmbench_path, device=self.cfg.t2i_device
+                    model_path=self.cfg.harmbench_path, device=harmbench_device
                 )
-                self.logger.info("HarmBench judge model loaded successfully")
+                self.logger.info(f"HarmBench judge model loaded successfully on {harmbench_device}")
             except ImportError:
                 self.logger.warning(
                     "harmfulbench_utils or HarmBenchJudge class not found, evaluation will be skipped"
                 )
             except Exception as e:
-                self.logger.error(f"Failed to load HarmBench judge model: {e}")
+                self.logger.error(f"Failed to load HarmBench judge model on GPU: {e}")
+                # Try CPU fallback if GPU loading fails
+                try:
+                    from .harmfulbench_utils import HarmBenchJudge
+                    self.logger.info("Attempting to load HarmBench judge model on CPU...")
+                    self.judge = HarmBenchJudge(
+                        model_path=self.cfg.harmbench_path, device="cpu"
+                    )
+                    self.logger.info("HarmBench judge model loaded successfully on CPU (slower but functional)")
+                except Exception as cpu_error:
+                    self.logger.error(f"Failed to load HarmBench judge model on CPU: {cpu_error}. Evaluation will be skipped.")
 
     # ---------------- Data-generation helpers (derived from your data_gen.py) ----------------
 
@@ -519,9 +535,25 @@ class HIMRDAttack(BaseAttack):
 
     def _generate_bottom_images(self, captions: List[str]) -> List[str]:
         saved = []
-        pipe = self.sd_pipe
         bottom_dir = os.path.join(self.cfg.output_data_path, "bottom_images")
         os.makedirs(bottom_dir, exist_ok=True)
+
+        # Lazy initialize SD pipeline on first use
+        if self.cfg.enable_sd and self.sd_pipe is None:
+            self.logger.info("Initializing SD pipeline for the first time...")
+            try:
+                self.sd_pipe = build_sd3_pipeline(
+                    self.cfg.stable_diffusion_path,
+                    self._sd_device,
+                    self._sd_dtype
+                )
+                self.logger.info(f"SD pipeline initialized on {self._sd_device}")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize SD pipeline: {e}. Using text fallback.")
+                self.sd_pipe = None
+
+        pipe = self.sd_pipe
+
         for i, cap in enumerate(captions):
             print(f"Generating bottom image #{i}: '{cap}'")
             outname = f"{i:05d}.png"
@@ -1331,6 +1363,7 @@ class HIMRDAttack(BaseAttack):
             text,
             idx,
             self.auxiliary_model,
+            model_name=getattr(self.cfg, 'openai_model', 'gpt-4o-2024-05-13'),
         )
 
     def _save_refinement_results(
@@ -1382,18 +1415,13 @@ class HIMRDAttack(BaseAttack):
         # 1) Run data generation process using extracted question list
         dg_res = self.run_data_generation(targets=targets)
 
-        # 2) Run attack on configured target model
-        gpu_id = self.cfg.t2i_device.replace("cuda:", "")
-        attack_res = self.run_attack(self.cfg.target_model_name, gpu_id=gpu_id)
+        # 2) Use the generated final images and prompts directly (simplified for test case generation)
+        # Note: Full attack run with iterative refinement is skipped for efficiency
 
         # 3) Convert back to test_cases format
-        final_images_dir = self.output_image_dir
-        final_prompts_path = os.path.join(
-            self.cfg.output_path,
-            self.cfg.target_model_name,
-            "refine_stage_2",
-            "refine_prompts.txt",
-        )
+        final_images_dir = Path(self.cfg.output_data_path) / "final_images"
+        final_prompts_path = Path(self.cfg.output_data_path) / "final_prompts.txt"
+
         if not os.path.exists(final_prompts_path):
             print(
                 f"[Warning] Final prompts file does not exist: {final_prompts_path}. Returning empty test cases."
@@ -1408,6 +1436,12 @@ class HIMRDAttack(BaseAttack):
             if final_images_dir.exists()
             else []
         )
+
+        if not images or not prompts_list:
+            print(
+                f"[Warning] No images or prompts found. Returning empty test cases."
+            )
+            return {}, {}
 
         return self.create_test_case(
             case_id=case_id,

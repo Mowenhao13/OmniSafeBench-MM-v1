@@ -400,9 +400,17 @@ def get_gpt_response(
     text: str,
     index: int,
     client: OpenAI | None = None,
+    model_name: str = "gpt-4o-2024-05-13",
 ):
     """
     Send an image + text to OpenAI chat (new client). Returns model reply string.
+
+    Args:
+        image: PIL Image object
+        text: Prompt text
+        index: Sample index
+        client: OpenAI client instance
+        model_name: Model name to use for generation
     """
     # convert image to base64 data URL
     import base64
@@ -424,7 +432,7 @@ def get_gpt_response(
     ]
 
     resp = client.generate(
-        model="gpt-4o-2024-05-13",
+        model=model_name,
         messages=messages,
         temperature=0,
         max_tokens=512,

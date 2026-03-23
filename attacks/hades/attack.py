@@ -32,6 +32,7 @@ class HadesConfig:
     pixart_path: str = ""
     creat_image: bool = False
     iter_steps: int = 3
+    device: str = "cuda:0"
 
     # === Font configuration ===
     font_path: str = ""  # Font file path, if empty will automatically find system font
@@ -54,6 +55,9 @@ class HadesAttack(BaseAttack):
         """
 
         super().__init__(config, output_image_dir)
+        self.device = self.cfg.device
+        self.logger.info(f"HADES attack initialized with device: {self.device}")
+
         # Initialize image generation model (if needed)
         if self.cfg.creat_image and self.cfg.pixart_path:
             import torch
@@ -62,7 +66,7 @@ class HadesAttack(BaseAttack):
             # Use enable_model_cpu_offload() to automatically manage device, no need to manually call to("cuda")
             # It will automatically move model components to GPU as needed
             if torch.cuda.is_available():
-                self.pixart.enable_model_cpu_offload()
+                self.pixart.enable_model_cpu_offload(gpu_id=int(self.device.split(':')[-1]))
             else:
                 self.logger.warning("CUDA not available, PixArt will use CPU")
         else:
