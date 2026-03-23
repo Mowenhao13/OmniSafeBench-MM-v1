@@ -9,10 +9,44 @@ parameters:
   batch_size: 2
   image_path: "attacks/data/clean.jpeg"  # Original clean image
   target_path: "attacks/data/corpus.txt"  # Corpus file path
-  target_model: "minigpt4.minigpt4_model.MiniGPT4"
-  device: "cuda"  # Auto detect
-  
-  # CoT parameters
-  cot_model: "gpt-3.5-turbo"
+  device: "cuda:1"  # GPU device for VAP computation
+
+  # CoT parameters (using vLLM API instead of GPT-3.5-turbo)
+  cot_model_name: "qwen2.5-3b-instruct"  # Uses vLLM port 8006
   max_cot_iterations: 3
-  load_model: true
+
+  # ============================================
+  # Target Model Configuration
+  # ============================================
+  #
+  # BAP is a WHITE-BOX attack that requires:
+  # 1. Local model loading (vLLM API won't work - no gradient access)
+  # 2. Model must have compute_loss_batch() method for gradient computation
+  #
+  # OPTION 1: MiniGPT4 (default - has compute_loss_batch implemented)
+  # -----------------------------------------
+  # MiniGPT4 requires transformers <= 4.30 due to Vicuna compatibility.
+  # Current environment has transformers 4.51.1 (INCOMPATIBLE)
+  #
+  # To use MiniGPT4, create separate venv:
+  # ```bash
+  # cd ~/projects/v1/OmniSafeBench-MM-v1
+  # python -m venv minigpt4_venv
+  # source minigpt4_venv/bin/activate
+  # pip install torch==1.13.1 transformers==4.28.0 salesforce-lavis
+  # # Run BAP attack in this environment
+  # ```
+  target_model: "minigpt4"
+  #
+  # OPTION 2: LLaVA-1.5-7B (requires implementing compute_loss_batch)
+  # -----------------------------------------
+  # LLaVA-1.5-7B is compatible with transformers 4.51.1
+  # Model exists at: /home/ubuntu/data/models/llava-1.5-7b-hf
+  # BUT: Need to implement compute_loss_batch() method for white-box attack
+  #
+  # target_model: "llava-v1.5-7b"
+
+  # IMPORTANT:
+  # - vLLM API models CANNOT be used (no gradient access for VAP)
+  # - Must use locally loaded model with compute_loss_batch() support
+  # - MiniGPT4 is the default because it has the required method implemented

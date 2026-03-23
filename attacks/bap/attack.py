@@ -35,12 +35,16 @@ class BAPConfig:
     batch_size: int = 2
     image_path: str = ""  # Original clean image
     target_path: str = ""  # Corpus file path
-    target_model: str = "minigpt4.minigpt4_model.MiniGPT4"
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # CoT parameters
-    cot_model: str = "gpt-3.5-turbo"
-    max_cot_iterations: int = 3  # CoT iteration count
+    # Target model configuration
+    target_model: str = "minigpt4"  # Must be local model for white-box attack
+
+    # CoT parameters (vLLM deployed model)
+    cot_model_name: str = "qwen2.5-3b-instruct"  # Model name in model_config.yaml
+    max_cot_iterations: int = 3
+
+    # Device configuration
+    device: str = "cuda:1"
 
 
 class BAPAttack(BaseAttack):
@@ -64,25 +68,28 @@ class BAPAttack(BaseAttack):
         self.constrained = bool(getattr(self.cfg, "constrained", True))
         self.batch_size = int(getattr(self.cfg, "batch_size", 2))
 
-        self.target_model_name = str(getattr(self.cfg, "target_model", ""))
         self.device = torch.device(
-            getattr(self.cfg, "device", "cuda" if torch.cuda.is_available() else "cpu")
+            getattr(self.cfg, "device", "cuda:1")
         )
 
-        # CoT parameters
-        cot_model_name = getattr(self.cfg, "cot_model", "gpt-3.5-turbo")
-        model_config = get_model_config(cot_model_name)
-        self.cot_model = UNIFIED_REGISTRY.create_model(cot_model_name, model_config)
+        # CoT parameters - using vLLM API (qwen2.5-3b-instruct on port 8006)
+        cot_model_name = getattr(self.cfg, "cot_model_name", "qwen2.5-3b-instruct")
+        cot_model_config = get_model_config(cot_model_name)
+        self.cot_model = UNIFIED_REGISTRY.create_model(cot_model_name, cot_model_config)
         self.max_cot_iterations = getattr(self.cfg, "max_cot_iterations", 3)
 
         # Load target corpus
         self.targets = self._load_targets()
 
-        # Load model
+        # Load MiniGPT4 model for white-box VAP attack
+        # Note: BAP requires local model loading for gradient computation
+        # vLLM API models cannot be used for VAP generation
         self.model = self._load_model()
         self.vis_processor = self.model.vis_processor
 
-        print(f"[BAP] Initialized with model: {self.target_model_name}")
+        print(f"[BAP] Initialized with model: MiniGPT4 (white-box attack)")
+        print(f"[BAP] CoT model: {cot_model_name} (vLLM API on port 8006)")
+        print(f"[BAP] Device: {self.device}")
         print(f"[BAP] Loaded {len(self.targets)} target phrases")
 
     def _load_targets(self):
@@ -114,14 +121,52 @@ class BAPAttack(BaseAttack):
         return targets
 
     def _load_model(self):
-        """Load target model"""
+        """Load MiniGPT4 model for white-box VAP attack
+
+        BAP attack requires:
+        1. Local model loading (vLLM API won't work - no gradient access)
+        2. Model must have compute_loss_batch() method for gradient computation
+
+        MiniGPT4 is the default because it has compute_loss_batch() implemented.
+
+        Note: MiniGPT4 requires transformers <= 4.30 due to Vicuna compatibility.
+        Current environment has transformers 4.51.1 (INCOMPATIBLE)
+
+        To use MiniGPT4, create a separate virtual environment:
+        ```bash
+        cd ~/projects/v1/OmniSafeBench-MM-v1
+        python -m venv minigpt4_venv
+        source minigpt4_venv/bin/activate
+        pip install torch==1.13.1 transformers==4.28.0 salesforce-lavis
+        # Then run BAP attack in this environment
+        ```
+
+        Alternative: Use LLaVA-1.5-7B, but you need to implement compute_loss_batch()
+        for LLaVA architecture (similar to MiniGPT4 implementation).
+        """
         try:
-            module_path, cls_name = self.target_model_name.rsplit(".", 1)
+            module_path, cls_name = "minigpt4.minigpt4_model".rsplit(".", 1)
             mod = importlib.import_module(f"multimodalmodels.{module_path}")
             model = getattr(mod, cls_name)()
+            print("[BAP] MiniGPT4 loaded successfully")
             return model
         except Exception as e:
-            raise RuntimeError(f"Failed to load model {self.target_model_name}: {e}")
+            print(f"[BAP] Failed to load MiniGPT4 model: {e}")
+            print("[BAP] MiniGPT4 requires transformers <= 4.30")
+            try:
+                import importlib.metadata
+                current_version = importlib.metadata.version("transformers")
+                print(f"[BAP] Current environment has transformers=={current_version}")
+            except:
+                pass
+            print("[BAP] Solutions:")
+            print("[BAP]   1. Create MiniGPT4 virtual environment:")
+            print("[BAP]      cd ~/projects/v1/OmniSafeBench-MM-v1")
+            print("[BAP]      python -m venv minigpt4_venv")
+            print("[BAP]      source minigpt4_venv/bin/activate")
+            print("[BAP]      pip install torch==1.13.1 transformers==4.28.0 salesforce-lavis")
+            print("[BAP]   2. Or use LLaVA-1.5-7B with custom compute_loss_batch() implementation")
+            raise RuntimeError(f"Failed to load MiniGPT4: {e}")
 
     def _generate_vap(self):
         """Generate Visual Adversarial Perturbation"""
