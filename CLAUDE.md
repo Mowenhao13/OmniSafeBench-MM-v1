@@ -1130,16 +1130,33 @@ parameters:
 ```bash
 cd ~/projects/v1/OmniSafeBench-MM-v1
 
-# 创建独立虚拟环境
+# 创建独立虚拟环境（已自动创建）
 python -m venv minigpt4_venv
+
+# 激活虚拟环境
 source minigpt4_venv/bin/activate
 
-# 安装兼容的依赖
-pip install torch==1.13.1 transformers==4.28.0 salesforce-lavis
+# 安装兼容的依赖（已自动安装）
+pip install torch==1.13.1 torchvision==0.14.1 --extra-index-url https://download.pytorch.org/whl/cu118
+pip install transformers==4.28.0
+pip install sentence-transformers==2.2.2
+pip install salesforce-lavis==1.0.0 --no-deps
+pip install einops==0.6.0 opencv-python-headless==4.5.5.64 fairscale==0.4.4 pycocotools omegaconf iopath timm==0.4.12
+pip install contexttimer decord ftfy ipython pandas plotly pycocoevalcap scikit-image python-magic spacy streamlit webdataset opendatasets pre-commit
+
+# 或者使用便捷脚本激活环境
+./activate_minigpt4_venv.sh
 
 # 运行 BAP 攻击
 python run_pipeline.py --config config/general_config.yaml --stage test_case_generation
 ```
+
+**`★ Insight ─────────────────────────────────────`**
+MiniGPT4 版本兼容性问题的根本原因：
+- MiniGPT4 基于 Vicuna-7B（LLaMA-1 架构），使用了旧版 transformers API
+- transformers 4.31+ 移除了某些旧版 API，导致 MiniGPT4 无法运行
+- 解决方案：独立虚拟环境隔离旧版依赖，不影响主环境
+**─────────────────────────────────────────────────**`
 
 ### CoT 模型配置
 
