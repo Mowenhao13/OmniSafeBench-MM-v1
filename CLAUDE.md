@@ -1076,3 +1076,107 @@ ps aux | grep multiprocessing | grep -v grep | awk '{print $2}' | xargs kill -9
 curl -s http://localhost:8008/v1/models | python3 -c "import sys,json; d=json.load(sys.stdin); print([m['id'] for m in d.get('data',[])])"
 ```
 
+---
+
+## BAP 攻击配置说明 (2026-03-23)
+
+### 概述
+
+BAP (Visual Adversarial Perturbation) 是一种**白盒攻击**方法，通过生成视觉对抗扰动来越狱多模态模型。
+
+### 关键技术要求
+
+**BAP 攻击需要：**
+1. **本地模型加载** - vLLM API 模型无法使用（无法访问梯度进行 VAP 生成）
+2. **compute_loss_batch() 方法** - 用于白盒攻击的梯度计算
+
+### 配置详情
+
+**配置文件** (`config/attacks/bap.yaml`):
+```yaml
+parameters:
+  # VAP 参数
+  epsilon: 32.0
+  alpha: 1.0
+  n_iters: 3000
+  constrained: true
+  batch_size: 2
+  image_path: "attacks/data/clean.jpeg"
+  target_path: "attacks/data/corpus.txt"
+  device: "cuda:1"  # GPU 设备配置
+
+  # CoT 参数 (使用 vLLM API)
+  cot_model_name: "qwen2.5-3b-instruct"  # 使用 vLLM 端口 8006
+  max_cot_iterations: 3
+
+  # 目标模型配置
+  target_model: "minigpt4"  # 必须使用本地模型进行白盒攻击
+```
+
+### 模型兼容性
+
+**默认模型：MiniGPT4**
+- ✅ 已实现 `compute_loss_batch()` 方法
+- ❌ 需要 transformers <= 4.30（当前环境 4.51.1 不兼容）
+
+**替代方案：LLaVA-1.5-7B**
+- ✅ 与 transformers 4.51.1 兼容
+- ⚠️ 需要实现自定义 `compute_loss_batch()` 方法
+
+### MiniGPT4 虚拟环境配置
+
+由于 MiniGPT4 需要旧版本 transformers，需要创建独立的虚拟环境：
+
+```bash
+cd ~/projects/v1/OmniSafeBench-MM-v1
+
+# 创建独立虚拟环境
+python -m venv minigpt4_venv
+source minigpt4_venv/bin/activate
+
+# 安装兼容的依赖
+pip install torch==1.13.1 transformers==4.28.0 salesforce-lavis
+
+# 运行 BAP 攻击
+python run_pipeline.py --config config/general_config.yaml --stage test_case_generation
+```
+
+### CoT 模型配置
+
+CoT (Chain-of-Thought) 提示优化使用 vLLM API：
+- **模型**: qwen2.5-3b-instruct
+- **端口**: 8006
+- **启动命令**:
+```bash
+export LD_LIBRARY_PATH=/home/ubuntu/projects/v1/OmniSafeBench-MM-v1/.venv/lib/python3.10/site-packages/nvidia/cuda_runtime/lib:$LD_LIBRARY_PATH
+CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server \
+  --model /home/ubuntu/data/models/Qwen2.5-3B-Instruct \
+  --port 8006 \
+  --trust-remote-code \
+  --dtype half \
+  --gpu-memory-utilization 0.8 \
+  --max-model-len 4096 \
+  --enforce-eager
+```
+
+### 代码修改摘要
+
+**attacks/bap/attack.py:**
+- `_load_model()`: 添加 MiniGPT4 虚拟环境配置说明
+- 使用 `cuda:1` 设备加载模型
+- CoT 模型使用 vLLM API (qwen2.5-3b-instruct)
+
+### 故障排除
+
+**MiniGPT4 加载失败:**
+```
+[BAP] Failed to load MiniGPT4 model: ...
+[BAP] MiniGPT4 requires transformers <= 4.30
+[BAP] Current environment has transformers==4.51.1
+```
+解决方案：创建 minigpt4_venv 虚拟环境并安装兼容版本
+
+**无法使用 vLLM 模型进行 VAP 攻击:**
+- vLLM API 模型不支持梯度计算
+- 必须使用本地加载的模型
+
