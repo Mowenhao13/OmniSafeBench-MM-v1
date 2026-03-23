@@ -1123,39 +1123,54 @@ parameters:
 - ✅ 与 transformers 4.51.1 兼容
 - ⚠️ 需要实现自定义 `compute_loss_batch()` 方法
 
-### MiniGPT4 虚拟环境配置
+### MiniGPT4 虚拟环境配置（已完成 ✅）
 
-由于 MiniGPT4 需要旧版本 transformers，需要创建独立的虚拟环境：
+**状态**: MiniGPT4 虚拟环境已成功创建并测试通过 (2026-03-23)
 
+**虚拟环境路径**: `/home/ubuntu/projects/v1/OmniSafeBench-MM-v1/minigpt4_venv`
+
+**已安装的关键依赖**:
+- torch==1.13.1
+- torchvision==0.14.1
+- transformers==4.28.0
+- peft==0.4.0
+- salesforce-lavis==1.0.0
+- bitsandbytes==0.39.1
+- triton==2.3.1 (兼容 bitsandbytes 0.39.1)
+- numpy==1.26.4 (<2.0  for torch 兼容性)
+- setuptools==69.5.1 (<70 for pkg_resources)
+- wandb==0.25.1
+- seaborn==0.13.2
+- matplotlib==3.10.8
+
+**模型路径配置**:
+- vicuna-7b: `/home/ubuntu/data/models/vicuna-7b`
+- MiniGPT4 checkpoint: `/home/ubuntu/data/models/pretrained_minigpt4.pth`
+- 配置文件已更新：`multimodalmodels/minigpt4/minigpt4_eval.yaml`
+
+**使用方法**:
 ```bash
 cd ~/projects/v1/OmniSafeBench-MM-v1
 
-# 创建独立虚拟环境（已自动创建）
-python -m venv minigpt4_venv
+# 方式 1: 使用便捷脚本激活环境
+./activate_minigpt4_venv.sh
 
-# 激活虚拟环境
+# 方式 2: 手动激活
 source minigpt4_venv/bin/activate
 
-# 安装兼容的依赖（已自动安装）
-pip install torch==1.13.1 torchvision==0.14.1 --extra-index-url https://download.pytorch.org/whl/cu118
-pip install transformers==4.28.0
-pip install sentence-transformers==2.2.2
-pip install salesforce-lavis==1.0.0 --no-deps
-pip install einops==0.6.0 opencv-python-headless==4.5.5.64 fairscale==0.4.4 pycocotools omegaconf iopath timm==0.4.12
-pip install contexttimer decord ftfy ipython pandas plotly pycocoevalcap scikit-image python-magic spacy streamlit webdataset opendatasets pre-commit
-
-# 或者使用便捷脚本激活环境
-./activate_minigpt4_venv.sh
+# 验证 MiniGPT4 加载
+python -c "from multimodalmodels.minigpt4.minigpt4_model import MiniGPT4; m = MiniGPT4(); print('Success!')"
 
 # 运行 BAP 攻击
 python run_pipeline.py --config config/general_config.yaml --stage test_case_generation
 ```
 
 **`★ Insight ─────────────────────────────────────`**
-MiniGPT4 版本兼容性问题的根本原因：
-- MiniGPT4 基于 Vicuna-7B（LLaMA-1 架构），使用了旧版 transformers API
-- transformers 4.31+ 移除了某些旧版 API，导致 MiniGPT4 无法运行
-- 解决方案：独立虚拟环境隔离旧版依赖，不影响主环境
+MiniGPT4 依赖问题解决过程：
+1. triton 3.6.0 与 bitsandbytes 0.39.1 不兼容 → 降级到 triton 2.3.1
+2. peft 0.3.0 缺少 `prepare_model_for_kbit_training` → 升级到 peft 0.4.0
+3. setuptools 82.0.1 移除了 pkg_resources → 降级到 setuptools 69.5.1
+4. numpy 2.x ABI 与 torch 1.13.1 不兼容 → 降级到 numpy 1.26.4
 **─────────────────────────────────────────────────**`
 
 ### CoT 模型配置
@@ -1191,7 +1206,13 @@ CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server \
 [BAP] MiniGPT4 requires transformers <= 4.30
 [BAP] Current environment has transformers==4.51.1
 ```
-解决方案：创建 minigpt4_venv 虚拟环境并安装兼容版本
+解决方案：minigpt4_venv 虚拟环境已创建，包含所有兼容的依赖版本
+
+**bitsandbytes triton 错误:**
+```
+ModuleNotFoundError: No module named 'triton.ops'
+```
+已解决：triton 2.3.1 已安装（兼容 bitsandbytes 0.39.1）
 
 **无法使用 vLLM 模型进行 VAP 攻击:**
 - vLLM API 模型不支持梯度计算

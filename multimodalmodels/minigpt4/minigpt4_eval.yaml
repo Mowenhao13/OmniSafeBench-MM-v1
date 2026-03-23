@@ -5,8 +5,8 @@ model:
   end_sym: "###"
   low_resource: False
   prompt_template: '###Human: {} ###Assistant: '
-  ckpt: '/path/to/Vision-CAIR/MiniGPT-4/pretrained_minigpt4.pth'
-  llama_model: '/path/to/Vision-CAIR/vicuna'
+  ckpt: '/home/ubuntu/data/models/pretrained_minigpt4.pth'
+  llama_model: '/home/ubuntu/data/models/vicuna-7b'
 
 
 
